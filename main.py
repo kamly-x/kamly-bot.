@@ -2378,7 +2378,28 @@ def main():
     # личка
     H(MessageHandler(PRIV & ~filters.COMMAND, on_private))
 
-    app.add_error_handler(on_error)
+        app.add_error_handler(on_error)
+
+    # --- МИНИ-СЕРВЕР ДЛЯ RENDER И UPTIMEROBOT ---
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class SimpleHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is alive!")
+        def log_message(self, format, *args):
+            pass
+
+    def run_web():
+        port = int(os.environ.get("PORT", 10000))
+        server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+        server.serve_forever()
+
+    threading.Thread(target=run_web, daemon=True).start()
+    # ---------------------------------------------
+
     print("✅ Бот запущен")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
