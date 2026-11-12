@@ -31,7 +31,7 @@ from telegram.ext import (
 
 # ============================ НАСТРОЙКИ ============================
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()   # Supabase / Neon (если пусто — файл data.json)
+DATABASE_URL = "postgresql://postgres: k@m1ly677667@db.gfcpzdrjccdwthkbyjst.supabase.co:5432/postgres"
 DATA_FILE = os.environ.get("DATA_FILE", "data.json")
 
 OLD_ID = int(os.environ.get("OLD_CHAT_ID", "-1004465245585"))   # старый чат (RU)
