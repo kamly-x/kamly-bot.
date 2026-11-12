@@ -31,7 +31,7 @@ from telegram.ext import (
 
 # ============================ НАСТРОЙКИ ============================
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-DATABASE_URL = "postgresql://postgres: KamlyHub2026@db.gfcpzdrjccdwthkbyjst.supabase.co:6543/postgres"
+DATABASE_URL="postgresql://postgres:KamlyHub2026@db.gfcpzdrjccdwthkbyjst.supabase.co:6543/postgres"
 DATA_FILE = os.environ.get("DATA_FILE", "data.json")
 
 OLD_ID = int(os.environ.get("OLD_CHAT_ID", "-1004465245585"))   # старый чат (RU)
