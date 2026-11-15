@@ -2150,7 +2150,8 @@ async def on_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m, u = update.message, update.effective_user
     if not m or not u:
         return
-    if context.user_data.get("awaiting_edit"):
+    is_audio = bool(m.audio or (m.document and (m.document.mime_type or "").startswith("audio")))
+    if context.user_data.get("awaiting_edit") and not is_audio:
         await submit_anon(update, context)
         return
     if not await is_admin(context.bot, u.id):
@@ -2180,8 +2181,9 @@ async def on_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if m.audio:
             title = " — ".join(x for x in (m.audio.performer, m.audio.title) if x)
         title = title or getattr(a, "file_name", None) or "Track"
-        context.user_data["pending_track"] = {"file_id": a.file_id, "title": title}
-        kb = Kb([[Btn(g["short"], callback_data=f"tg|{k}")] for k, g in GENRES.items()])
+        pend = context.application.bot_data.setdefault("pending_tracks", {})
+        pend[str(m.message_id)] = {"file_id": a.file_id, "title": title}
+        kb = Kb([[Btn(g["short"], callback_data=f"tg|{m.message_id}|{k}")] for k, g in GENRES.items()])
         await m.reply_text(f"🎵 «{title}»\nЖанр / Genre:", reply_markup=kb)
     elif m.animation or (doc and mime in ("video/mp4", "image/gif")):
         DATA["gif"] = m.animation.file_id if m.animation else doc.file_id
@@ -2194,11 +2196,11 @@ async def on_track_genre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(context.bot, q.from_user.id):
         await q.answer("Admins only", show_alert=True)
         return
-    p = context.user_data.pop("pending_track", None)
+    _, mid, gk = q.data.split("|")
+    p = context.application.bot_data.get("pending_tracks", {}).pop(mid, None)
     if not p:
         await q.answer("Send the track again", show_alert=True)
         return
-    gk = q.data.split("|")[1]
     DATA["tracks"].append({"file_id": p["file_id"], "title": p["title"], "genre": gk})
     save()
     await safe_edit(q, f"✅ «{esc(p['title'])}» → <b>{GENRES[gk]['title']}</b>\nВсего треков: {len(DATA['tracks'])}")
