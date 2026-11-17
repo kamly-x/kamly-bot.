@@ -21,6 +21,7 @@ import httpx
 from telegram import (
     Update, InlineKeyboardButton as Btn, InlineKeyboardMarkup as Kb,
     ChatPermissions, LinkPreviewOptions, ReplyParameters, BotCommand,
+    InputMediaVideo,
 )
 from telegram.constants import ParseMode, ChatMemberStatus
 from telegram.error import BadRequest
@@ -33,6 +34,8 @@ from telegram.ext import (
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 DATABASE_URL="postgresql://postgres.gfcpzdrjccdwthkbyjst:KamlyHub2026@aws-0-eu-west-3.pooler.supabase.com:6543/postgres"
 DATA_FILE = os.environ.get("DATA_FILE", "data.json")
+OWNER_CONTACT = os.environ.get("OWNER_CONTACT", "@Kam1ly")
+OWNER_ID = int(os.environ.get("OWNER_ID", "0") or 0)
 
 OLD_ID = int(os.environ.get("OLD_CHAT_ID", "-1004465245585"))   # старый чат (RU)
 HUB_ID = int(os.environ.get("HUB_CHAT_ID", "-1004440981561"))   # новая супергруппа с темами
@@ -90,26 +93,26 @@ RANKS = [
 ]
 
 GENRES = {
-    "shoegaze": {"short": "Shoegaze", "title": "Dark Shoegaze / Alternative",
-                 "vibe": ("мрачные, атмосферные эдиты", "dark, atmospheric edits"),
-                 "styles": [("Dark manga atmosphere", "Dark manga atmosphere"),
-                            ("Slow zoom + плёночное зерно", "Slow zoom + film grain"),
-                            ("Ч/Б с мягким свечением", "B&W with soft glow")]},
-    "phonk": {"short": "Phonk / Rap", "title": "Underground Rap / Phonk",
-              "vibe": ("жёсткий динамичный монтаж", "hard dynamic montage"),
-              "styles": [("Быстрые переходы + shake", "Fast transitions + shake"),
-                         ("Ритм-монтаж под бит", "Beat-synced montage"),
-                         ("Агрессивные глитчи + красные акценты", "Aggressive glitches + red accents")]},
-    "witch": {"short": "Witch House", "title": "Witch House",
-              "vibe": ("медленный темп, глитчи и мистический вайб", "slow tempo, glitches, mystic vibe"),
-              "styles": [("Глитчи + VHS", "Glitches + VHS"),
-                         ("Мистика и ghost-эффекты", "Mystic + ghost effects"),
-                         ("Замедление + искажения", "Slowdown + distortion")]},
-    "ambient": {"short": "Ambient", "title": "Ambient / Slowed & Reverb",
-                "vibe": ("плавный, медитативный монтаж", "smooth, meditative montage"),
-                "styles": [("Плавные переходы", "Smooth transitions"),
-                           ("Frame by frame в слоу", "Slow frame by frame"),
-                           ("Минимализм + типографика", "Minimalism + typography")]},
+    "funk": {"short": "Funk", "title": "Funk",
+             "vibe": ("грув, качающий ритм, чёткие синхро-удары", "groove, bouncy rhythm, tight sync hits"),
+             "styles": [("Синхро под бас", "Bass-synced cuts"),
+                        ("Зумы и шейки в ритм", "Beat zooms and shakes"),
+                        ("Яркий контраст + цветокор", "High contrast + color grade")]},
+    "hardstyle": {"short": "Hardstyle", "title": "Hardstyle",
+                  "vibe": ("энергичный монтаж, мощные дропы", "energetic montage, powerful drops"),
+                  "styles": [("Быстрый монтаж на дропе", "Fast drop montage"),
+                             ("Вспышки и флэши", "Flashes and strobes"),
+                             ("Агрессивные переходы", "Aggressive transitions")]},
+    "hardtech": {"short": "Hardtech", "title": "Hardtech",
+                 "vibe": ("жёсткий индустриальный тёмный драйв", "hard industrial dark drive"),
+                 "styles": [("Глитч и дисторшн", "Glitch and distortion"),
+                            ("Тёмный индустриал", "Dark industrial"),
+                            ("Рваный ритм-монтаж", "Chopped rhythm montage")]},
+    "hashtek": {"short": "Hashtek", "title": "Hashtek",
+                "vibe": ("гипнотичный плотный бит", "hypnotic dense beat"),
+                "styles": [("Гипнотичные повторы", "Hypnotic loops"),
+                           ("Медленный зум + зерно", "Slow zoom + grain"),
+                           ("Минимализм под бит", "Minimal beat edit")]},
 }
 LENGTHS = [("10 секунд", "10 seconds"), ("15 секунд", "15 seconds"),
            ("20 секунд", "20 seconds"), ("30 секунд", "30 seconds")]
@@ -134,6 +137,7 @@ HT_EDIT = re.compile(r"#edit\b", re.I)
 HT_REVIEW = re.compile(r"#review\b", re.I)
 HT_DUEL = re.compile(r"#duel\b", re.I)
 FLOOD = defaultdict(deque)
+SHOP_LAST = {}
 STAT_KEYS = ["edits", "votes", "contests", "links", "bans", "mutes", "warns",
              "reviews", "duels", "anon", "ratings", "comments"]
 
@@ -161,7 +165,7 @@ def fresh_defaults():
             "users": {}, "known": {}, "stats": {}, "hall": [], "tracks": [], "winner_uid": None,
             "challenge": None, "duels": {}, "anon": {}, "anon_msgs": {}, "anon_last": {},
             "counters": {}, "topics": {}, "ref_links": {}, "ref_owner": {}, "ref_joined": {},
-            "backup_to": [], "last_backup": ""}
+            "backup_to": [], "last_backup": "", "shop": [], "orders": []}
 
 
 def ensure(d):
@@ -169,7 +173,7 @@ def ensure(d):
         d.setdefault(k, v)
     for k in STAT_KEYS:
         d["stats"].setdefault(k, 0)
-    for k in ("anon", "duel"):
+    for k in ("anon", "duel", "xml"):
         d["counters"].setdefault(k, 0)
     return d
 
@@ -209,6 +213,12 @@ def load():
 
 
 DATA = load()
+_legacy = {"shoegaze": "funk", "phonk": "hardstyle", "witch": "hardtech", "ambient": "hashtek"}
+for _t in DATA["tracks"]:
+    if _t.get("genre") not in GENRES:
+        _t["genre"] = _legacy.get(_t.get("genre"), "funk")
+if DATA.get("challenge") and DATA["challenge"].get("g") not in GENRES:
+    DATA["challenge"] = None
 DIRTY = {"v": bool(DATABASE_URL)}   # при старте с БД сразу сохраним (на случай импорта из файла)
 SAVE_LOCK = None
 
@@ -664,6 +674,7 @@ def welcome_kb(bot_username, lang):
         [Btn(L(lang, "🤝 Партнёрка", "🤝 Referral"), url=base + "ref"),
          Btn("🌐 Language", url=base + "lang")],
         [Btn(L(lang, "⚡ Канал", "⚡ Channel"), url=CHANNEL_LINK)],
+        [Btn(L(lang, "🛒 Магазин XML", "🛒 XML shop"), url=base + "shop")],
     ])
 
 
@@ -710,7 +721,8 @@ def commands_text(lang):
           "/stats — статистика хаба\n/hall — зал славы\n/contest — топ эдитов недели\n"
           "/challenge — челлендж недели\n/duel — вызвать на дуэль (ответом или @ник)\n"
           "/invite — партнёрка и твоя ссылка\n/reftop — топ пригласивших\n"
-          "/guide — гайд по хабу\n/rules — правила\n/commands — этот список\n\n"
+          "/guide — гайд по хабу\n/rules — правила\n/commands — этот список\n"
+          "/shop — магазин XML\n\n"
           "<b>Хештеги:</b>\n<code>#edit</code> — эдит в конкурс\n<code>#review</code> — запрос фидбека\n"
           "<code>#duel</code> — сдать эдит в дуэль\n\n"
           "<b>В личке бота:</b> оценка эдита анонимно, язык, партнёрка.\n\n"
@@ -722,7 +734,8 @@ def commands_text(lang):
           "/stats — hub stats\n/hall — hall of fame\n/contest — this week's top edits\n"
           "/challenge — weekly challenge\n/duel — challenge someone (reply or @name)\n"
           "/invite — referral program and your link\n/reftop — top inviters\n"
-          "/guide — hub guide\n/rules — rules\n/commands — this list\n\n"
+          "/guide — hub guide\n/rules — rules\n/commands — this list\n"
+          "/shop — XML shop\n\n"
           "<b>Hashtags:</b>\n<code>#edit</code> — enter the contest\n<code>#review</code> — ask for feedback\n"
           "<code>#duel</code> — submit your duel edit\n\n"
           "<b>In the bot's DM:</b> anonymous edit rating, language, referral.\n\n"
@@ -736,7 +749,8 @@ async def on_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m = update.message
     if not m or not m.is_automatic_forward:
         return
-    kb = Kb([[Btn("Channel Chat", url=CHATS[m.chat_id]["link"] or OLD_CHAT_LINK)]])
+    kb = Kb([[Btn("Channel Chat", url=CHATS[m.chat_id]["link"] or OLD_CHAT_LINK)],
+             [Btn("🛒 Магазин XML", url=f"https://t.me/{context.bot.username}?start=shop")]])
     try:
         if DATA["gif"]:
             await m.reply_animation(animation=DATA["gif"], reply_markup=kb)
@@ -2041,6 +2055,7 @@ def main_text(lang, name):
 
 def main_kb(lang):
     rows = [[Btn(L(lang, "🎬 Оценить эдит", "🎬 Rate edit"), callback_data="m|rate")],
+            [Btn(L(lang, "🛒 Магазин XML", "🛒 XML shop"), callback_data="xo")],
             [Btn(L(lang, "🤝 Партнёрка", "🤝 Referral"), callback_data="m|ref"),
              Btn(L(lang, "🏅 Мой профиль", "🏅 My profile"), callback_data="m|me")],
             [Btn(L(lang, "📖 Команды", "📖 Commands"), callback_data="m|cmds"),
@@ -2075,6 +2090,8 @@ async def show_screen(message, context, user, arg):
         await ask_edit(message, context, user)
     elif arg == "lang":
         await message.reply_text("🌐 Выбери язык / Choose language:", reply_markup=lang_kb())
+    elif arg == "shop":
+        await send_shop(context.bot, message.chat_id, user)
     else:
         await message.reply_text(main_text(lang, user.first_name), parse_mode=HTML, reply_markup=main_kb(lang))
 
@@ -2150,6 +2167,20 @@ async def on_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m, u = update.message, update.effective_user
     if not m or not u:
         return
+    cap = m.caption or ""
+    vid_doc = m.document and (m.document.mime_type or "").startswith("video")
+    if (m.video or vid_doc) and cap.strip().lower().startswith("#xml") and await is_admin(context.bot, u.id):
+        parsed = parse_xml_caption(cap)
+        if not parsed:
+            await m.reply_text("Формат подписи к видео:\n#xml\nНазвание\nЦена в звёздах (число)\nОписание (можно в несколько строк)\n\nили в одну строку: #xml Название | 150 | Описание")
+            return
+        title, price, desc = parsed
+        DATA["counters"]["xml"] = DATA["counters"].get("xml", 0) + 1
+        DATA["shop"].append({"id": DATA["counters"]["xml"], "title": title, "price": price, "desc": desc,
+                             "file_id": m.video.file_id if m.video else m.document.file_id})
+        save()
+        await m.reply_text(f"✅ XML «{title}» добавлен: {price} ⭐. Всего в магазине: {len(DATA['shop'])}")
+        return
     is_audio = bool(m.audio or (m.document and (m.document.mime_type or "").startswith("audio")))
     if context.user_data.get("awaiting_edit") and not is_audio:
         await submit_anon(update, context)
@@ -2212,7 +2243,7 @@ async def cmd_tracks(update, context):
     if not DATA["tracks"]:
         await update.message.reply_text("Треков нет. Пришли аудиофайл — добавлю.")
         return
-    lines = ["🎵 <b>Треки:</b>\n"] + [f"{i}. {esc(t['title'])} — {GENRES[t['genre']]['short']}"
+    lines = ["🎵 <b>Треки:</b>\n"] + [f"{i}. {esc(t['title'])} — {GENRES.get(t['genre'], {}).get('short', '?')}"
                                       for i, t in enumerate(DATA["tracks"], 1)]
     lines.append("\nУдалить: <code>/deltrack номер</code>")
     await update.message.reply_text("\n".join(lines), parse_mode=HTML)
@@ -2315,12 +2346,12 @@ async def post_init(app):
           ("hall", "Hall of fame"), ("ranks", "All ranks"), ("contest", "Top edits of the week"),
           ("challenge", "Weekly challenge"), ("duel", "Challenge to a duel"), ("invite", "Referral program"),
           ("reftop", "Top inviters"), ("guide", "Hub guide"), ("commands", "All commands"),
-          ("rules", "Rules"), ("language", "Language")]
+          ("rules", "Rules"), ("language", "Language"), ("shop", "XML shop")]
     ru = [("me", "Моя карточка и ранг"), ("top", "Рейтинг креаторов"), ("stats", "Статистика хаба"),
           ("hall", "Зал славы"), ("ranks", "Все ранги"), ("contest", "Топ эдитов недели"),
           ("challenge", "Челлендж недели"), ("duel", "Вызвать на дуэль"), ("invite", "Партнёрка"),
           ("reftop", "Топ пригласивших"), ("guide", "Гайд по хабу"), ("commands", "Все команды"),
-          ("rules", "Правила"), ("language", "Язык")]
+          ("rules", "Правила"), ("language", "Язык"), ("shop", "Магазин XML")]
     try:
         await app.bot.set_my_commands([BotCommand(c, d) for c, d in en])
         await app.bot.set_my_commands([BotCommand(c, d) for c, d in ru], language_code="ru")
@@ -2331,6 +2362,133 @@ async def post_init(app):
 async def post_shutdown(app):
     await flush()
 
+
+# ============================ МАГАЗИН XML ============================
+def shop_caption(i, lang):
+    it = DATA["shop"][i]
+    n = len(DATA["shop"])
+    desc = it["desc"]
+    if len(desc) > 650:
+        desc = desc[:650] + "…"
+    return (f"🛒 <b>{esc(it['title'])}</b>\n\n{esc(desc)}\n\n"
+            + L(lang, "💰 Цена: ", "💰 Price: ") + f"<b>{it['price']} ⭐</b>\n📄 {i + 1}/{n}")
+def shop_kb(i, lang):
+    n = len(DATA["shop"])
+    it = DATA["shop"][i]
+    return Kb([[Btn("⬅️", callback_data=f"xs|{(i - 1) % n}"),
+                Btn(f"{i + 1}/{n}", callback_data=f"xs|{i}"),
+                Btn("➡️", callback_data=f"xs|{(i + 1) % n}")],
+               [Btn(L(lang, "🛒 Купить", "🛒 Buy"), callback_data=f"xb|{it['id']}")]])
+async def send_shop(bot, chat_id, user):
+    lang = ulang(user.id) or guess_lang(user)
+    if not DATA["shop"]:
+        await bot.send_message(chat_id, L(lang, "🛒 Магазин XML скоро откроется!", "🛒 XML shop opens soon!"))
+        return
+    it = DATA["shop"][0]
+    await bot.send_video(chat_id, it["file_id"], caption=shop_caption(0, lang), parse_mode=HTML,
+                         reply_markup=shop_kb(0, lang))
+async def on_shop_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    await send_shop(context.bot, q.message.chat_id, q.from_user)
+async def on_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    lang = ulang(q.from_user.id) or guess_lang(q.from_user)
+    if not DATA["shop"]:
+        await q.answer(L(lang, "Магазин пуст.", "The shop is empty."), show_alert=True)
+        return
+    i = int(q.data.split("|")[1]) % len(DATA["shop"])
+    it = DATA["shop"][i]
+    try:
+        await q.edit_message_media(InputMediaVideo(media=it["file_id"], caption=shop_caption(i, lang), parse_mode=HTML),
+                                   reply_markup=shop_kb(i, lang))
+    except BadRequest:
+        pass
+    await q.answer()
+async def owner_ids(bot):
+    if OWNER_ID:
+        return [OWNER_ID]
+    ids = []
+    for cid in CHATS:
+        try:
+            for a in await bot.get_chat_administrators(cid):
+                if a.status == ChatMemberStatus.OWNER and a.user.id not in ids:
+                    ids.append(a.user.id)
+        except Exception:
+            pass
+    return ids
+async def on_shop_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    u = q.from_user
+    lang = ulang(u.id) or guess_lang(u)
+    xid = int(q.data.split("|")[1])
+    it = next((x for x in DATA["shop"] if x["id"] == xid), None)
+    if not it:
+        await q.answer(L(lang, "Этот товар уже недоступен.", "This item is no longer available."), show_alert=True)
+        return
+    key = f"{u.id}:{xid}"
+    if time.time() - SHOP_LAST.get(key, 0) < 60:
+        await q.answer(L(lang, "Заявка уже отправлена, ждите ответа.", "Request already sent, please wait."), show_alert=True)
+        return
+    SHOP_LAST[key] = time.time()
+    DATA["orders"].append({"xml": xid, "title": it["title"], "price": it["price"],
+                           "user_id": u.id, "username": u.username or "", "ts": time.time()})
+    save()
+    await q.answer("✅")
+    await q.message.reply_text(L(lang,
+                                 f"✅ Заявка на «{esc(it['title'])}» передана автору. Скоро с тобой свяжутся.\nКонтакт для связи: {esc(OWNER_CONTACT)}",
+                                 f"✅ Your request for “{esc(it['title'])}” was sent to the author. They will contact you soon.\nContact: {esc(OWNER_CONTACT)}"),
+                               parse_mode=HTML)
+    uname = f"@{u.username}" if u.username else "—"
+    text = (f"🛒 <b>Новая заявка на XML</b>\n\n📦 {esc(it['title'])}\n💰 {it['price']} ⭐\n"
+            f"👤 {mention(u.id, u.full_name)} ({esc(uname)})\n🆔 <code>{u.id}</code>")
+    for oid in await owner_ids(context.bot):
+        try:
+            await context.bot.send_message(oid, text, parse_mode=HTML, link_preview_options=NOPREV)
+        except Exception as e:
+            print("shop notify error:", e)
+async def cmd_shop(update, context):
+    if update.effective_chat.type != "private":
+        lang = cl(update)
+        kb = Kb([[Btn(L(lang, "🛒 Магазин XML", "🛒 XML shop"), url=f"https://t.me/{context.bot.username}?start=shop")]])
+        await say(context.bot, update.effective_message, L(lang, "Магазин XML — в личке 👇", "XML shop — in DM 👇"), reply_markup=kb)
+        return
+    await send_shop(context.bot, update.effective_chat.id, update.effective_user)
+def parse_xml_caption(cap):
+    body = cap.strip()[4:].strip()
+    if not body:
+        return None
+    first = body.split("\n")[0]
+    try:
+        if "|" in first:
+            parts = [p.strip() for p in body.split("|", 2)]
+        else:
+            lines = [l.strip() for l in body.split("\n") if l.strip()]
+            parts = [lines[0], lines[1], "\n".join(lines[2:])]
+        title = parts[0]
+        price = int(re.sub(r"\D", "", parts[1]))
+        desc = parts[2] if len(parts) > 2 else ""
+        return (title, price, desc) if title and price > 0 else None
+    except Exception:
+        return None
+async def cmd_xmls(update, context):
+    if not await is_admin(context.bot, update.effective_user.id):
+        return
+    if not DATA["shop"]:
+        await update.message.reply_text("Магазин пуст. Пришли видео с подписью:\n#xml\nНазвание\nЦена в звёздах\nОписание")
+        return
+    lines = ["🛒 <b>XML в магазине:</b>\n"] + [f"{i}. {esc(x['title'])} — {x['price']} ⭐" for i, x in enumerate(DATA["shop"], 1)]
+    lines.append("\nУдалить: <code>/delxml номер</code>")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML)
+async def cmd_delxml(update, context):
+    if not await is_admin(context.bot, update.effective_user.id):
+        return
+    if context.args and context.args[0].isdigit() and 1 <= int(context.args[0]) <= len(DATA["shop"]):
+        x = DATA["shop"].pop(int(context.args[0]) - 1)
+        save()
+        await update.message.reply_text(f"🗑 «{x['title']}»")
+    else:
+        await update.message.reply_text("/delxml 2  (список: /xmls)")
 
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
@@ -2343,7 +2501,7 @@ def main():
                      ("cmds", cmd_commands), ("help", cmd_commands), ("contest", cmd_contest),
                      ("stats", cmd_stats), ("top", cmd_top), ("me", cmd_me), ("hall", cmd_hall),
                      ("ranks", cmd_ranks), ("challenge", cmd_challenge), ("invite", cmd_invite),
-                     ("reftop", cmd_reftop), ("language", cmd_language)]:
+                     ("reftop", cmd_reftop), ("language", cmd_language), ("shop", cmd_shop)]:
         H(CommandHandler(name, fn))
     # личка
     H(CommandHandler("start", start, filters=PRIV))
@@ -2351,6 +2509,8 @@ def main():
     H(CommandHandler("rate", cmd_rate, filters=PRIV))
     H(CommandHandler("tracks", cmd_tracks, filters=PRIV))
     H(CommandHandler("deltrack", cmd_deltrack, filters=PRIV))
+    H(CommandHandler("xmls", cmd_xmls, filters=PRIV))
+    H(CommandHandler("delxml", cmd_delxml, filters=PRIV))
     H(CommandHandler("backup", cmd_backup, filters=PRIV))
     H(CommandHandler("autobackup", cmd_autobackup, filters=PRIV))
     # чаты
@@ -2366,7 +2526,8 @@ def main():
                     (r"^(dt|dp|ds)\|", on_duel_pick), (r"^dv\|", on_duel_vote), (r"^de\|", on_duel_end),
                     (r"^r\|", on_rate), (r"^rc\|", on_rate_help), (r"^rd\|", on_rate_delete),
                     (r"^m\|", on_menu), (r"^lg\|", on_lang), (r"^ref\|", on_ref_btn),
-                    (r"^tg\|", on_track_genre)]:
+                    (r"^tg\|", on_track_genre),
+                    (r"^xo$", on_shop_open), (r"^xs\|", on_shop_nav), (r"^xb\|", on_shop_buy)]:
         H(CallbackQueryHandler(fn, pattern=pat))
     H(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
 
