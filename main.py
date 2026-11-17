@@ -2541,7 +2541,7 @@ def main():
     # личка
     H(MessageHandler(PRIV & ~filters.COMMAND, on_private))
 
-        app.add_error_handler(on_error)
+            app.add_error_handler(on_error)
 
     # --- МИНИ-СЕРВЕР ДЛЯ RENDER И UPTIMEROBOT ---
     from http.server import HTTPServer, BaseHTTPRequestHandler
